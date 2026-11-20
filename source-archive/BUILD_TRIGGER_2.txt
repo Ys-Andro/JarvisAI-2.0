@@ -1,0 +1,1 @@
+Retest after exporting DEVKITARM/bin in PATH.
