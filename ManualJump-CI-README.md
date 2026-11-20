@@ -1,15 +1,20 @@
 # ManualJump Add-on: compilación automática
 
-Este staging está en una rama privada e independiente: `manualjump-addon-ci`. No modifica la rama principal.
+Este staging vive en la rama privada e independiente `manualjump-addon-ci` de `Ys-Andro/JarvisAI-2.0`. La rama `main` no se modifica.
 
-## Ejecutar
-El flujo `.github/workflows/manualjump-build.yml` se ejecuta al actualizar esta rama y admite ejecución manual desde **Actions → Build ManualJump 3GX → Run workflow**.
+## Ejecución
+GitHub Actions está configurado para compilar automáticamente cuando se actualiza esta rama y los cambios afectan al flujo o al archivo de código fuente dividido en partes.
 
 ## Artefactos
-Si la compilación termina correctamente, GitHub Actions publica `ManualJump.3gx` y `ManualJump_Azahar_USA_Install.zip` en un artefacto con retención de 30 días.
+Si la compilación termina correctamente, GitHub Actions publica:
+- `ManualJump.3gx`
+- `ManualJump_Azahar_USA_Install.zip`
+
+El artefacto se conserva durante 30 días. Consulta la pestaña **Actions** del repositorio y abre la ejecución correspondiente a la rama `manualjump-addon-ci`.
 
 ## Validaciones
 - Ejecuta las comprobaciones existentes del proyecto.
+- Reconstruye el archivo fuente y valida su SHA-256.
 - Compila con el contenedor oficial `devkitpro/devkitarm`.
 - Construye `3gxtool` desde su fuente.
 - Rechaza el resultado si la cabecera no es `3GX$0002`.
