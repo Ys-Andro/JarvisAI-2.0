@@ -49,6 +49,34 @@ jobs:
           tar -xJf /tmp/ManualJump_source.tar.xz -C "$GITHUB_WORKSPACE/source"
           test -f "$GITHUB_WORKSPACE/source/ManualJump_Addon_SingleScreen_USA_v0.1/Makefile"
 
+      - name: Apply libctru compatibility fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("source/ManualJump_Addon_SingleScreen_USA_v0.1/src/main.c")
+          source = path.read_text()
+          old_macro = "#define CUR_PROCESS_HANDLE  ((Handle)0xFFFF8001u)\n"
+          guarded_macro = ("#ifndef CUR_PROCESS_HANDLE\n"
+                           "#define CUR_PROCESS_HANDLE  ((Handle)0xFFFF8001u)\n"
+                           "#endif\n")
+          if guarded_macro not in source:
+              if old_macro not in source:
+                  raise SystemExit("CUR_PROCESS_HANDLE definition changed; review patch")
+              source = source.replace(old_macro, guarded_macro, 1)
+          old_call = "svcCreateThread(&g_worker_thread, PluginWorker, NULL,"
+          new_call = "svcCreateThread(&g_worker_thread, PluginWorker, 0,"
+          if new_call not in source:
+              if old_call not in source:
+                  raise SystemExit("svcCreateThread call changed; review patch")
+              source = source.replace(old_call, new_call, 1)
+          path.write_text(source)
+          if new_call not in source:
+              raise SystemExit("svcCreateThread argument was not corrected")
+          print("Applied libctru compatibility fixes.")
+          PY
+
       - name: Run source checks
         working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
         shell: bash
