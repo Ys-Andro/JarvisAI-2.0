@@ -57,14 +57,18 @@ En Azahar activa **Enable 3GX plugin loader** en los ajustes del sistema. No sus
 
 ## Compilación automatizada
 
-La compilación se realiza con GitHub Actions usando el contenedor devkitARM, libctru y `3gxtool`.
+La compilación se realiza con GitHub Actions sobre una imagen de devkitARM fijada por digest y con dependencias verificadas por SHA-256.
 
 1. Abre la pestaña **Actions**.
 2. Selecciona **ManualJump 3GX Build**.
-3. Ejecuta **Run workflow** o consulta la ejecución automática tras un cambio en el workflow o el archivo fuente.
-4. Cuando la ejecución termine correctamente, descarga el artefacto `ManualJump-3GX-Azahar-USA`.
+3. Ejecuta **Run workflow** o deja que se active al cambiar el workflow o algún fragmento de `source-archive/`.
+4. Cuando termine correctamente, descarga el artefacto `ManualJump-3GX-Azahar-USA`.
 
-El flujo verifica el SHA-256 del archivo fuente, ejecuta las pruebas del proyecto, compila el plugin y comprueba que el contenedor comience con `3GX$0002`. El paquete instalable se publica solo si todas esas etapas terminan correctamente. Los artefactos se conservan durante 30 días.
+El workflow reconstruye el archivo fuente desde seis fragmentos Base64 y verifica su SHA-256. También descarga versiones fijadas de `3gxtool`, `yaml-cpp` y `dynalo`, comprueba sus hashes, ejecuta las pruebas y valida que el contenedor generado comience con `3GX$0002`, el formato que espera el cargador actual de Azahar.
+
+Antes de compilar aplica tres ajustes de compatibilidad sobre la copia temporal del código fuente: protege la definición de `CUR_PROCESS_HANDLE`, pasa el argumento de hilo como `u32` a `svcCreateThread` y excluye el archivo C vacío `csvc.c` para evitar que colisione con el objeto generado por `csvc.s`. El archivo fuente archivado se conserva sin modificar.
+
+La ejecución aprobada más reciente es [#44698351766](https://github.com/Ys-Andro/JarvisAI-2.0/actions/runs/44698351766). El artefacto se conserva durante 30 días; no es una publicación permanente.
 
 ## Estructura del código
 
@@ -74,10 +78,14 @@ El proyecto fuente completo está almacenado en `source-archive/` como seis frag
 
 - Pruebas de política de botones `off / zr / x`: aprobadas.
 - Comprobaciones de sintaxis C: aprobadas.
-- Verificación de firma binaria con los archivos originales IPS y ExHeader: pendiente de repetir con esos archivos presentes en el entorno de validación.
-- Compilación 3GX con devkitARM: en proceso de validación mediante Actions.
-- Carga y comportamiento del plugin en Azahar: pendiente.
-- Validación práctica del salto, reasignación de X/ZR y conservación de la lógica SingleScreen: pendiente.
+- Compilación y enlace con devkitARM: aprobados en Actions.
+- Cabecera del plugin `3GX$0002`: verificada.
+- Paquete de instalación Azahar: generado y comprobado; contiene `ManualJump.3gx` y `ManualJump.cfg` en la ruta del Title ID correcto.
+- Verificación adicional de firmas IPS/ExHeader de SingleScreen: omitida en CI porque esos archivos originales no se incluyen en el repositorio.
+- Carga y comportamiento del plugin dentro de Azahar: pendientes de prueba real.
+- Salto manual, reasignación X/ZR y conservación de la lógica SingleScreen durante el juego: pendientes de validación.
+
+**No consideres validado el salto por el hecho de que el plugin compile.** Mantén `mode=off` hasta completar las pruebas dentro de Azahar.
 
 ## Atribución y licencia
 
