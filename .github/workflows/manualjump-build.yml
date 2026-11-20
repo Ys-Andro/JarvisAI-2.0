@@ -1,0 +1,163 @@
+name: ManualJump 3GX Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/manualjump-build.yml
+      - ManualJump_Source_v0.1.tar.xz
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manualjump-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build 3GX for Azahar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install 3gxtool build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates cmake g++ git make python3 unzip zip xz-utils
+          git clone --depth 1 --recurse-submodules --shallow-submodules \
+            https://gitlab.com/thepixellizeross/3gxtool.git /tmp/3gxtool
+          cmake -S /tmp/3gxtool -B /tmp/3gxtool/build \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/3gxtool/build --config Release -j"$(nproc)"
+          tool_path="$(find /tmp/3gxtool/build -type f -name 3gxtool -perm -u+x | head -n 1)"
+          test -n "$tool_path"
+          install -D -m 755 "$tool_path" /opt/devkitpro/tools/bin/3gxtool
+          command -v 3gxtool
+
+      - name: Extract project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/source"
+          echo "6f1505bf1b194d25697166105238566428991c2addb18114506d541b6a6a5387  ManualJump_Source_v0.1.tar.xz" | sha256sum -c -
+          xz -t ManualJump_Source_v0.1.tar.xz
+          tar -xJf ManualJump_Source_v0.1.tar.xz -C "$GITHUB_WORKSPACE/source"
+          test -f "$GITHUB_WORKSPACE/source/ManualJump_Addon_SingleScreen_USA_v0.1/Makefile"
+
+      - name: Apply libctru API compatibility fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("source/ManualJump_Addon_SingleScreen_USA_v0.1/src/main.c")
+          source = path.read_text()
+
+          old_macro = "#define CUR_PROCESS_HANDLE  ((Handle)0xFFFF8001u)\n"
+          guarded_macro = (
+              "#ifndef CUR_PROCESS_HANDLE\n"
+              "#define CUR_PROCESS_HANDLE  ((Handle)0xFFFF8001u)\n"
+              "#endif\n"
+          )
+          if guarded_macro not in source:
+              if old_macro not in source:
+                  raise SystemExit("CUR_PROCESS_HANDLE definition changed; review the compatibility patch")
+              source = source.replace(old_macro, guarded_macro, 1)
+
+          old_call = "svcCreateThread(&g_worker_thread, PluginWorker, NULL,"
+          new_call = "svcCreateThread(&g_worker_thread, PluginWorker, 0,"
+          if new_call not in source:
+              if old_call not in source:
+                  raise SystemExit("svcCreateThread call changed; review the compatibility patch")
+              source = source.replace(old_call, new_call, 1)
+
+          path.write_text(source)
+          if new_call not in source:
+              raise SystemExit("svcCreateThread argument was not corrected")
+          print("Applied libctru API compatibility fixes.")
+          PY
+
+      - name: Run project checks
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: bash ./run_checks.sh
+
+      - name: Compile plugin
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DEVKITARM:-}"
+          test -f "$DEVKITARM/3ds_rules"
+          export PATH="$DEVKITARM/bin:/opt/devkitpro/tools/bin:$PATH"
+          command -v arm-none-eabi-gcc
+          command -v 3gxtool
+          make
+          test -s ManualJump.3gx
+
+      - name: Verify 3GX container
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          plugin = Path("ManualJump.3gx")
+          header = plugin.read_bytes()[:8]
+          print(f"ManualJump.3gx header: {header!r}")
+          if header != b"3GX$0002":
+              raise SystemExit("Unexpected 3GX container header; refusing to publish")
+          print(f"Plugin size: {plugin.stat().st_size} bytes")
+          PY
+
+      - name: Package for Azahar
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$GITHUB_WORKSPACE/dist/sdmc/luma/plugins/0004000000033500"
+          mkdir -p "$destination"
+          cp ManualJump.3gx ManualJump.cfg "$destination/"
+          cat > "$GITHUB_WORKSPACE/dist/INSTALACION.txt" <<'EOF'
+          ManualJump Add-on - Ocarina of Time 3D USA Rev 1
+
+          Instala la carpeta sdmc dentro del directorio SDMC usado por Azahar.
+          La ruta final debe ser:
+          sdmc/luma/plugins/0004000000033500/ManualJump.3gx
+          sdmc/luma/plugins/0004000000033500/ManualJump.cfg
+
+          Conserva SingleScreen 3.2.2 USA y su code.ips sin cambios.
+          Activa "Enable 3GX plugin loader" en los ajustes del sistema de Azahar.
+          El modo predeterminado es off. Cambia mode=off por mode=zr o mode=x
+          solo para pruebas controladas y reinicia el juego tras cambiar el archivo.
+
+          Este paquete solo certifica compilación y estructura 3GX. No certifica
+          compatibilidad en ejecución ni el funcionamiento del salto en Azahar.
+          Haz una copia de seguridad de tu partida antes de probar modos activos.
+          EOF
+          (cd "$GITHUB_WORKSPACE/dist" && zip -qr ManualJump_Azahar_USA_Install.zip sdmc INSTALACION.txt)
+          test -s "$GITHUB_WORKSPACE/dist/ManualJump_Azahar_USA_Install.zip"
+
+      - name: Upload compiled artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ManualJump-3GX-Azahar-USA
+          path: |
+            source/ManualJump_Addon_SingleScreen_USA_v0.1/ManualJump.3gx
+            dist/ManualJump_Azahar_USA_Install.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
