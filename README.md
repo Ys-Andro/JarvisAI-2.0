@@ -68,7 +68,7 @@ El flujo verifica el SHA-256 del archivo fuente, ejecuta las pruebas del proyect
 
 ## Estructura del código
 
-El archivo `ManualJump_Source_v0.1.tar.xz` contiene el proyecto fuente completo, incluidos Makefile, linker script, código C/Assembly, pruebas, configuración, documentación y licencia GPL-2.0.
+El proyecto fuente completo está almacenado en `source-archive/` como seis fragmentos de texto Base64. GitHub Actions los reconstruye, verifica su SHA-256 y extrae el Makefile, linker script, código C/Assembly, pruebas, configuración, documentación y licencia GPL-2.0.
 
 ## Estado de validación
 
