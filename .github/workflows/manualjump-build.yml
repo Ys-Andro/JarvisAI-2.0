@@ -1,0 +1,125 @@
+name: Build ManualJump 3GX
+
+on:
+  push:
+    branches:
+      - manualjump-addon-ci
+    paths:
+      - .github/workflows/manualjump-build.yml
+      - source-archive/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout private staging branch
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies and 3gxtool
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates cmake g++ git make python3 unzip zip xz-utils
+          git clone --depth 1 --recurse-submodules --shallow-submodules \
+            https://gitlab.com/thepixellizeross/3gxtool.git /tmp/3gxtool
+          cmake -S /tmp/3gxtool -B /tmp/3gxtool/build \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/3gxtool/build --config Release -j"$(nproc)"
+          tool_path="$(find /tmp/3gxtool/build -type f -name 3gxtool -perm -u+x | head -n 1)"
+          test -n "$tool_path"
+          install -D -m 755 "$tool_path" /opt/devkitpro/tools/bin/3gxtool
+          command -v 3gxtool
+
+      - name: Reassemble and extract source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/source"
+          cat source-archive/part_*.b64 | base64 -d > /tmp/ManualJump_source.tar.xz
+          xz -t /tmp/ManualJump_source.tar.xz
+          tar -xJf /tmp/ManualJump_source.tar.xz -C "$GITHUB_WORKSPACE/source"
+          test -f "$GITHUB_WORKSPACE/source/ManualJump_Addon_SingleScreen_USA_v0.1/Makefile"
+
+      - name: Run source checks
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: bash ./run_checks.sh
+
+      - name: Compile 3GX plugin
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DEVKITARM:-}"
+          test -f "$DEVKITARM/3ds_rules"
+          command -v arm-none-eabi-gcc
+          command -v 3gxtool
+          make
+          test -s ManualJump.3gx
+
+      - name: Verify 3GX container format
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          artifact = Path("ManualJump.3gx")
+          header = artifact.read_bytes()[:8]
+          print(f"ManualJump.3gx header: {header!r}")
+          if header != b"3GX$0002":
+              raise SystemExit("Unexpected 3GX container header; refusing to publish artifact")
+          print(f"Verified plugin size: {artifact.stat().st_size} bytes")
+          PY
+
+      - name: Assemble Azahar installation package
+        working-directory: source/ManualJump_Addon_SingleScreen_USA_v0.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist/sdmc/luma/plugins/0004000000033500"
+          cp ManualJump.3gx ManualJump.cfg \
+            "$GITHUB_WORKSPACE/dist/sdmc/luma/plugins/0004000000033500/"
+          cat > "$GITHUB_WORKSPACE/dist/README_INSTALACION.txt" <<'EOF'
+          ManualJump Add-on para Ocarina of Time 3D USA Rev 1
+
+          CONTENIDO
+          sdmc/luma/plugins/0004000000033500/ManualJump.3gx
+          sdmc/luma/plugins/0004000000033500/ManualJump.cfg
+
+          INSTALACION EN AZAHAR (ANDROID)
+          1. Conserva SingleScreen 3.2.2 USA como está. No reemplaces su code.ips.
+          2. Copia la carpeta sdmc incluida aquí dentro del directorio SDMC que usa Azahar.
+          3. En Ajustes del sistema activa Enable 3GX plugin loader.
+          4. En ManualJump.cfg selecciona mode=off, mode=zr o mode=x.
+          5. Cierra y vuelve a iniciar el juego después de cambiar la configuración.
+
+          IMPORTANTE
+          Este paquete confirma la compilación y la cabecera 3GX, no el funcionamiento
+          del salto dentro de Azahar. Comienza con mode=off. La prueba de las direcciones
+          de memoria y del hook en la versión exacta del juego sigue pendiente. Haz una
+          copia de seguridad de tu partida antes de probar cualquier modo activo.
+          EOF
+          (cd "$GITHUB_WORKSPACE/dist" && zip -qr ManualJump_Azahar_USA_Install.zip sdmc README_INSTALACION.txt)
+          test -s "$GITHUB_WORKSPACE/dist/ManualJump_Azahar_USA_Install.zip"
+
+      - name: Upload compiled plugin and installation package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ManualJump-3GX-Azahar-USA
+          path: |
+            source/ManualJump_Addon_SingleScreen_USA_v0.1/ManualJump.3gx
+            dist/ManualJump_Azahar_USA_Install.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
