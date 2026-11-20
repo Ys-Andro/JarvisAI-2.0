@@ -83,6 +83,13 @@ jobs:
                   raise SystemExit("svcCreateThread call changed; review the compatibility patch")
               source = source.replace(old_call, new_call, 1)
 
+          empty_c = path.with_name("csvc.c")
+          if empty_c.exists():
+              expected = "/* Intentionally empty: svcControlProcess is provided by src/csvc.S. */"
+              if empty_c.read_text().strip() != expected:
+                  raise SystemExit("csvc.c is no longer the known empty placeholder; review before removing")
+              empty_c.unlink()
+
           path.write_text(source)
           if new_call not in source:
               raise SystemExit("svcCreateThread argument was not corrected")
