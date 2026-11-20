@@ -61,6 +61,8 @@ jobs:
           set -euo pipefail
           test -n "${DEVKITARM:-}"
           test -f "$DEVKITARM/3ds_rules"
+          export PATH="$DEVKITARM/bin:/opt/devkitpro/tools/bin:$PATH"
+          test -x "$DEVKITARM/bin/arm-none-eabi-gcc"
           command -v arm-none-eabi-gcc
           command -v 3gxtool
           make
